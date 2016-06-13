@@ -1,6 +1,4 @@
-//var     cheerio = require('cheerio'),
-//
-var  fs = require('fs'),
+var  fs,
     _ = require('lodash'),
     path = require('path'),
     Promise = require('bluebird'),
@@ -11,25 +9,30 @@ var  fs = require('fs'),
     mkdirp = require('mkdirp-promise'),
     moment = require('moment'),
     archiver = require('archiver'),
-    file, data,
+    file, data, file2, data2,
     posts, htmlArray = [], coverImageArray = [],
     exportFile, tags, posts_tags, users,
     pdc = Promise.promisify(require('pdc')),
     normalizeNewline = require('normalize-newline'),
     originalImages = [], newImages = [], index = 0,
-    newExport= '', baseDir, contentDir, count = 0;
+    newExport= '', baseDir, contentDir, count = 0,
+    debug = require('debug')('Image.js'),
+    fsExtra = require('fs-extra');
+
+fs = Promise.promisifyAll(require('fs'));
 
 init = function init(params, type) {
+    debug('initialising');
     fs.exists(params.originalFile, function(exists) {
         if (exists) {
-            createWorkspace(params);
+            createWorkspace(params,type);
         } else {
             console.log('No matching file found');
         }
     });
 };
 
-createWorkspace = function createWorkspace(params) {
+createWorkspace = function createWorkspace(params,type) {
     baseDir = 'tmp' + _.uniqueId();
     fs.exists(baseDir, function(exists) {
         if (exists) {
@@ -38,9 +41,10 @@ createWorkspace = function createWorkspace(params) {
             var year = moment().format('YYYY'),
                 month = moment().format('MM');
             contentDir = '/content/images/' + year + '/' + month;
-            console.log('Temporary workspace created:', baseDir);
+
             mkdirp(baseDir + contentDir).then(function (made) {
-                getData(params);
+                debug('Temporary workspace created: %s', baseDir);
+                getData(params, type);
             }).catch(function (err) {
                 console.error(err);
             });
@@ -53,35 +57,26 @@ createUniqueImage = function createUniqueImage(file) {
     if (_.contains(newImages, file)) {
         createUniqueImage(file);
     } else {
+        newImages.push(file);
         return file;
-    };
+    }
 };
 
-getImage = function getImage(response,image){
-    var status, error = 0;
-    status = response.statusCode;
-    if (status === 200){
-        index +=  1;
+getImageFilename = function getImageFilename(image){
+    var fileNameArray = image.url.split('/'),
+        fileName = fileNameArray[fileNameArray.length - 1],
+        name;
 
-        if (response.headers['content-type']){
-            var fileNameArray = image.url.split('/'),
-                fileName = fileNameArray[fileNameArray.length - 1],
-                name;
-
-            if (_.contains(fileName, '?')) {
-                fileName = fileName.split('?');
-                fileName = _.uniqueId() + fileName[0];
-            }
-
-            // Check if this filename is already in use
-            if (_.contains(newImages, fileName)) {
-              fileName = createUniqueImage(fileName);
-            }
-
-            name = contentDir + '/' + fileName;
-            newImages.push({url: image.url, newUrl: name});
-        }
+    if (_.contains(fileName, '?')) {
+        fileName = fileName.split('?');
+        fileName = _.uniqueId() + fileName[0];
     }
+
+    fileName = createUniqueImage(fileName);
+
+    name = contentDir + '/' + fileName;
+    image.newUrl = name.replace(/\%/g, '');
+    return image;
 };
 
 preProcessImage = function preProcessImage(image) {
@@ -94,36 +89,16 @@ preProcessImage = function preProcessImage(image) {
     }
 };
 
-// This checks that all valid images have been saved before proceeding.
-// TODO find a nicer way to promisify the piping process instead of this hacky method
-writingImages = function writingImages(params, posts) {
-    if (count !== newImages.length) {
-        setTimeout(function () {
-            console.log('Downloading images');
-            writingImages(params, posts);
-        }, 500);
-    } else {
-        console.log('Images saved');
-        if (params.markdown) {
-            return getMarkdown(posts);
-        } else {
-            // Ensure that content in markdown matches content in html
-            _.each(posts, function (post) {
-                post.markdown = normalizeNewline(post.html);
-            });
-
-            return writeFile(posts);
-        }
-    }
-};
-
 //Loads a JSON file and pushes html from posts into an array
-getData = function getData(params) {
+getData = function getData(params,type) {
     var urlPromises = [];
-    console.log('get data called');
-    file = json.read(params.originalFile);
-    data = file.data.db[0].data;
-    // Create arrays from for posts, users and tags
+    // console.log('get data called');
+    debug('Getting Data');
+    file = fsExtra.readJsonSync(params.originalFile);
+    debug('Data Acquired %s', _.size(file.db[0].data));
+
+    data = file.db[0].data;
+    // Create arrays for posts, users and tags
     // TODO make this more robust to handle more ghost json formats
 
     posts = data['posts'] ? data['posts'] : [];
@@ -131,16 +106,22 @@ getData = function getData(params) {
     tags = data['tags'] ? data['tags'] : [];
     posts_tags = data['posts_tags'] ? data['posts_tags'] : [];
 
-    if (params.html) {
-        getHTML();
+    if (params.chunk) {
+        debug('Chunking process')
+        writeFile(posts);
+    } else if (params.html) {
+        debug('Convert html to markdown');
+        getHTML(params,type, posts);
     } else {
-        findImages();
+        debug('Finding Images');
+        findImages(params);
     }
 };
 
-findImages = function findImages() {
+findImages = function findImages(params) {
+  var urlPromises = [];
+    console.log('findImages called');
     if (params.images) {
-        console.log('Reading image references');
         _.each([posts, users, tags], function (collection) {
             _.each(collection, function (data) {
                 if (data.html) {
@@ -156,62 +137,54 @@ findImages = function findImages() {
                 }
             });
         });
+        function downloadImage(image){
+            return request({url: image.url, headers: {'User-Agent': 'Chrome/49.0.2623.110'}, encoding : null })
+                .spread(function (response, body) {
+                    if (response.statusCode != 200) return Promise.resolve();
 
-        _.each(originalImages, function (image) {
-            urlPromises.push(request({url: image.url, followRedirect: true, headers: {'User-Agent': 'Chrome/45.0.2454.85'}}).spread(function (response, body) {
-                return {response: response, image: image};
-            }));
-        });
+                    var newUrl = getImageFilename(image),
+                        name = baseDir + newUrl.newUrl;
+                    return fs.writeFileAsync(name, body)
+                        .catch(function (err){
+                            console.log('fs write error', image);
+                        });
+                }).then(function updatedImage() {
+                    return image;
+                }).catch(function (err){
+                    console.log('Image Request Error', image);
+                });
+        }
 
-        return Promise.settle(urlPromises).then(function (results) {
-            console.log('Verifying images');
-            setTimeout(function () {
-            }, 2000);
+        function escapeRegExp(str) {
+            return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+        }
 
-            _.each(results, function (result) {
-                setTimeout(function () {
-                }, 2000);
-                if (result.isFulfilled()){
-                    getImage(result.value().response, result.value().image)
-                } else if (result.isRejected()){
-                    console.log(result.reason());
-                }
+        return Promise.map(originalImages, function(image) {
+            return downloadImage(image);
+        }, {concurrency: 5}).then(function updatePostsImageReferences(updatedImages) {
+            _.each(updatedImages, function updateImageReferences(image) {
+                _.each(posts, function updatePostImageReferences(post) {
+                    if (image && image.url && image.newUrl) {
+                        var find = image.url,
+                            re = new RegExp(escapeRegExp(find), 'g');
 
-            });
-
-            function escapeRegExp(str) {
-                return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
-            }
-            console.log('Updating image references');
-            _.each(newImages, function(image) {
-                _.each(posts, function (post) {
-                    var find = image.url,
-                        re = new RegExp(escapeRegExp(find), 'g');
-
-                    post.html = post.html.replace(re, function(match) {
-                        return image.newUrl;
-                    });
-                    post.markdown = post.markdown.replace(re, function(match) {
-                        return image.newUrl;
-                    });
-                    if (post.image) {
-                        post.image = post.image.replace(re, function(match) {
+                        post.html = post.html.replace(re, function (match) {
                             return image.newUrl;
                         });
+                        post.markdown = post.markdown.replace(re, function (match) {
+                            return image.newUrl;
+                        });
+                        if (post.image) {
+                            post.image = post.image.replace(re, function (match) {
+                                return image.newUrl;
+                            });
+                        }
                     }
                 });
             }) ;
-
-            _.each(newImages, function(image) {
-                request.get({url: image.url, followRedirect: true, headers: {'User-Agent': 'Chrome/45.0.2454.85'}}).on('response', function (response, body) {
-                }).pipe(fs.createWriteStream(baseDir + image.newUrl)).on('error', function(e) {
-                }).on('finish', function () {
-                    count += 1;
-                });
-            });
-
-            writingImages(params, posts);
+            getMarkdown(posts);
         });
+
     } else if (params.markdown) {
         getMarkdown(posts);
     }
@@ -222,21 +195,9 @@ getFilenames = function () {
     return fs.readdirSync(baseDir + contentDir);
 };
 
-writeFile = function writeFile(posts) {
-    var files = [], output, archive, postsArray = _.chunk(posts, 140);
-
-    output = fs.createWriteStream('output.zip');
-    archive = archiver('zip');
-
-    output.on('close', function() {
-        console.log('Images and import file have been archived.\nSize:', archive.pointer() + ' total bytes');
-    });
-
-    archive.on('error', function(err) {
-        throw err;
-    });
-
-    archive.pipe(output);
+writeFile = function writeFile(updatedPosts) {
+    console.log('writeFile called');
+    var files = [], output, postsArray = _.chunk(updatedPosts, 150);
 
     for(var i = 0; i < postsArray.length; i++) {
         var postCol = postsArray[i];
@@ -246,7 +207,7 @@ writeFile = function writeFile(posts) {
                 if (post.id === tag.post_id) {
                     sectionPostTags.push(tag);
                     var matchedTag = _.find(tags, _.matchesProperty('id', tag.tag_id)),
-                        checkTag = _.find(tags3, _.matchesProperty('id', matchedTag.id));
+                        checkTag = _.find(sectionTags, _.matchesProperty('id', matchedTag.id));
                     if (checkTag === undefined) {
                         sectionTags.push(matchedTag);
                     }
@@ -274,29 +235,20 @@ writeFile = function writeFile(posts) {
 
         exportJson = JSON.stringify(exportJson);
 
-        fs.writeFileSync(baseDir + '/file' + i + '.json', exportJson);
-        archive.append(fs.createReadStream(baseDir + '/file' + i + '.json'), {name: 'file' + i + '.json'});
+        fs.writeFileAsync(baseDir + '/file' + i + '.json', exportJson).catch(function (err) {
+            console.log('write JSON-file Error', err);
+        });
+
     }
-
-    files = getFilenames();
-    _.each(files, function (file) {
-        archive.append(fs.createReadStream(baseDir + contentDir + '/' + file), { name: contentDir + '/' + file})
-    });
-
-    archive.finalize();
-
-    // TODO add clean up function to remove temporary files
-
 };
 
 // We need html in order to retrieve images
-getHTML = function getHTML(posts, type) {
-    var ops = [], type;
-
+getHTML = function getHTML(params, type, posts) {
+    var ops = [];
     // If no type is specified assume markdown
     type = type ? type : 'markdown';
     _.forEach(posts, function(post, i) {
-        var promise = pdc(post.markdown, type, 'html').then(function (result) {
+        var promise = pdc(post.html, type, 'html', ['-R']).then(function (result) {
             posts[i].html = result;
             posts[i].markdown = result;
         });
@@ -305,24 +257,30 @@ getHTML = function getHTML(posts, type) {
     });
 
     Promise.all(ops).then(function() {
-          findImages();
+          if (params.images) {
+              findImages(params);
+          } else {
+              writeFile(posts);  
+          }
+
     })
 };
 
 getMarkdown = function getMarkdown(posts) {
     var ops = [];
 
-    _.forEach(posts, function(post, i) {
-        var promise = pdc(post.html, 'html', 'markdown_github').then(function (result) {
-            posts[i].markdown = result;
+    Promise.map(posts, function convertToMarkdown(post) {
+        return pdc(post.html, 'html', 'markdown_github', ['-R']).then(function (result) {
+            post.markdown = normalizeNewline(result);
+            return post;
+        }).catch(function (err) {
+            console.log(err);
         });
-
-        ops.push(promise);
+    }, {concurrency:5}).then(function (posts) {
+        writeFile(posts);
     });
 
-    Promise.all(ops).then(function() {
-        writeFile(posts);
-    })
+
 };
 
 module.exports = init;
