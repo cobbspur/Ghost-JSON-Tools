@@ -5,13 +5,14 @@
  */
 
 var _ = require('lodash'),
-        tools = {},
-        debug = require('debug')('Index.js');
+        tools   = {},
+        debug   = require('debug')('Index.js'),
+        image   = require('./image.js'),
+        analyse = require('./analyse.js');
 
-tools.image     = require('./image.js');
-tools.analyse   = require('./analyse.js');
 
-init = function init() {
+
+var init = function init() {
     var flags = {
             markdown: false,
             images: false,
@@ -25,7 +26,8 @@ init = function init() {
             '\n\nYou can add these flags:' +
             '\n\n-i                This will run the image scraper tool and create a folder of images' +
             '\n-m                This will convert html to markdown' +
-            '\n-f=test.json      This tells us the file you want to convert\n-t=markdown       This will convert different types of markdown to html' +
+            '\n-f=test.json      This tells us the file you want to convert' +
+            '\n-t=markdown       This will convert different types of markdown to html' +
             '\n-c                This will chunk your json import file into chunks of 200 posts' +
             '\n\n---------------------------------------------------------------------------------------' +
             '\n-a                Analyses your file. Prepend cli command with DEBUG=analysis.' +
@@ -49,10 +51,13 @@ init = function init() {
             case '-t':
                 flags.html = true;
                 type = arg.slice(3);
+                break;
             case '-c':
                 flags.chunk = true;
+                break;
             case '-a':
                 flags.analyse = true;
+                break;
             default:
                 break;
         }
@@ -63,9 +68,9 @@ init = function init() {
     } else if (!flags.originalFile) {
         console.log('You have not specified a file\n\n' + help);
     } else if (flags.analyse) {
-        tools.analyse(flags);
-    } else{
-        tools.image(flags, type);
+        analyse.init(flags);
+    } else {
+        image.init(flags, type);
     }
 };
 

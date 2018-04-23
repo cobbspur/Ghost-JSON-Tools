@@ -17,7 +17,7 @@
     "fs-extra": "^0.30.0",
     "json-file": "^0.1.0",
     "lodash": "^3.10.1",
-    "mkdirp-promise": "^1.0.3",
+    "mkdirp-promise": "5.0.1",
     "moment": "^2.10.6",
     "normalize-newline": "^1.0.2",
     "path": "^0.11.14",

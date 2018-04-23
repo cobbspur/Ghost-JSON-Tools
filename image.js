@@ -7,7 +7,7 @@ var  fs,
     mkdirp = require('mkdirp-promise'),
     moment = require('moment'),
     archiver = require('archiver'),
-    file, data
+    file, data, baseDir,
     posts, tags, posts_tags, users,
     pdc = Promise.promisify(require('pdc')),
     normalizeNewline = require('normalize-newline'),
@@ -40,14 +40,14 @@ fetchImage = {
 
     createWorkspace: function createWorkspace(params,type) {
         var self = this;
-        baseDir = 'tmp' + _.uniqueId();
+        baseDir = path.resolve('./tmp' + _.uniqueId());
         fs.exists(baseDir, function(exists) {
             if (exists) {
                 createWorkspace(params);
             } else {
                 var year = moment().format('YYYY'),
-                    month = moment().format('MM');
-                contentDir = '/content/images/' + year + '/' + month;
+                    month = moment().format('MM'),
+                    contentDir = '/content/images/' + year + '/' + month;
 
                 mkdirp(baseDir + contentDir).then(function (made) {
                     debug('Temporary workspace created: %s', baseDir);
@@ -286,12 +286,12 @@ fetchImage = {
         });
 
         Promise.all(ops).then(function(results) {
+            // console.log(results.length);
             if (params.images) {
                 fetchImage.findImages(params);
             } else {
                 fetchImage.writeFile(posts);
             }
-
         }).catch(function (e) {
             console.log('e', e)
         })
