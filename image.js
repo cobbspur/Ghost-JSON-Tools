@@ -113,6 +113,7 @@ fetchImage = {
         users = data['users'] ? data['users'] : [];
         tags = data['tags'] ? data['tags'] : [];
         posts_tags = data['posts_tags'] ? data['posts_tags'] : [];
+        posts_authors = data['posts_authors'] ? data['posts_authors'] : [];
         console.log(posts.length + ' posts in file');
 
         if (params.chunk) {
@@ -207,11 +208,11 @@ fetchImage = {
 
     writeFile: function writeFile(updatedPosts) {
         console.log('writeFile called');
-        var files = [], output, postsArray = _.chunk(updatedPosts, 200);
+        var files = [], output, postsArray = _.chunk(updatedPosts, 100);
 
         for(var i = 0; i < postsArray.length; i++) {
             var postCol = postsArray[i];
-            var sectionTags = [], sectionPostTags = [], newPosts = [], sectionUsers = [], userIds = [];
+            var sectionTags = [], sectionPostTags = [], newPosts = [], sectionUsers = [], userIds = [], sectionPostAuthors = [];
             _.each(postCol, function (post) {
                 _.each(posts_tags, function (tag) {
                     if (post.id === tag.post_id) {
@@ -223,6 +224,16 @@ fetchImage = {
                         }
                     }
                 });
+                _.each(posts_authors, function (author) {
+                    if (post.id === author.post_id) {
+                        sectionPostAuthors.push(author);
+                        var matchedAuthor = _.find(users, _.matchesProperty('id', author.author_id)),
+                            checkAuthor = _.find(sectionUsers, _.matchesProperty('id', matchedAuthor.id));
+                        if (checkAuthor === undefined) {
+                            sectionUsers.push(matchedAuthor);
+                        }
+                    }
+                })
                     if(_.findIndex(userIds, post.author_id) === -1) {
                         userIds.push(post.author_id);
                     }
@@ -250,14 +261,15 @@ fetchImage = {
                 'db': [
                     {
                         'meta': {
-                            'exported_on': 1408539273930,
-                            'version': '003'
+                            'exported_on': 1571277773105,
+                            'version': '2.0.0'
                         },
                         'data': {
                             'posts': postsArray[i],
                             'tags': sectionTags,
                             'posts_tags': sectionPostTags,
-                            'users': sectionUsers
+                            'users': sectionUsers,
+                            'posts_authors': sectionPostAuthors
                         }
                     }
                 ]
