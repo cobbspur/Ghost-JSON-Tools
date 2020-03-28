@@ -28,7 +28,7 @@ var init = function init() {
             '\n-m                This will convert html to markdown' +
             '\n-f=test.json      This tells us the file you want to convert' +
             '\n-t=markdown       This will convert different types of markdown to html' +
-            '\n-c                This will chunk your json import file into chunks of 200 posts' +
+            '\n-c                This will chunk your json import file into chunks of 100 posts' +
             '\n\n---------------------------------------------------------------------------------------' +
             '\n-a                Analyses your file. Prepend cli command with DEBUG=analysis.' +
             '\n                  This overrides all other methods' +
@@ -68,7 +68,7 @@ var init = function init() {
     } else if (!flags.originalFile) {
         console.log('You have not specified a file\n\n' + help);
     } else if (flags.analyse) {
-        analyse.init(flags);
+        analyse(flags);
     } else {
         image.init(flags, type);
     }

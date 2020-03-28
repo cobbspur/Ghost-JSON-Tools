@@ -16,15 +16,19 @@ getData = function getData(params) {
         data = file.data;
     }
 
+    meta = data['meta'] ? data['meta'] : [];
     posts      = data['posts'] ? data['posts'] : [];
     users      = data['users'] ? data['users'] : [];
     tags       = data['tags'] ? data['tags'] : [];
     posts_tags = data['posts_tags'] ? data['posts_tags'] : [];
+    posts_authors = data['posts_authors'] ? data['posts_authors'] : [];
 
+    debug('Meta information: %s', meta);
     debug('Post count: %s', posts.length);
     debug('Tag count: %s', tags.length);
     debug('User count: %s', users.length);
     debug('Post Tags count: %s', posts_tags.length);
+    debug('Post Authors count: %s', posts_authors.length);
 
 };
 

@@ -36,3 +36,6 @@ node_modules
 config.js
 stripe-test-scripts
 *.pem
+
+*.json
+!package.json
